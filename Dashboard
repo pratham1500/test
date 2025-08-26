@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Discussion Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb;
+        }
+        .main-container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 2rem;
+            height: calc(100vh - 4rem);
+        }
+        @media (max-width: 1024px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+        }
+        .main-view-tab {
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .main-view-tab.active {
+            background-color: #4f46e5;
+            color: white;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        .status-on-track { background-color: #dcfce7; color: #166534; }
+        .status-at-risk { background-color: #fef9c3; color: #854d0e; }
+        .status-delayed { background-color: #fee2e2; color: #991b1b; }
+        .action-item-completed { text-decoration: line-through; color: #6b7280; }
+        .gemini-button {
+            background-color: #ede9fe;
+            color: #5b21b6;
+            border: 1px solid #d8b4fe;
+        }
+        .gemini-button:hover {
+            background-color: #d8b4fe;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 800px;
+        }
+        .comment-input {
+            display: none;
+        }
+        .comment-input.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body class="p-8">
+
+    <div class="main-container">
+        <!-- Left Navigation Panel -->
+        <aside class="bg-white p-6 rounded-lg shadow-sm flex flex-col">
+            <div class="flex-shrink-0">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Dashboard</h2>
+                <div class="flex border border-gray-300 rounded-md mb-2">
+                    <button id="tab-projects" onclick="switchView('projects')" class="main-view-tab w-1/2 p-2 rounded-l-md">Projects</button>
+                    <button id="tab-governance" onclick="switchView('governance')" class="main-view-tab w-1/2 p-2 rounded-r-md border-l">Governance</button>
+                </div>
+                <div class="space-y-2 mt-4">
+                    <button onclick="openProjectModal('add')" class="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium">Add New Project</button>
+                    <button onclick="showCompletionReport()" class="w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium">View All Completed Tasks</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right Content Panel -->
+        <main id="project-details" class="bg-white p-8 rounded-lg shadow-sm overflow-y-auto">
+            <!-- Project details will be rendered here -->
+        </main>
+    </div>
+
+    <!-- Reusable Modal for Project Form -->
+    <div id="project-form-modal" class="modal-backdrop hidden">
+        <div class="modal-content max-w-2xl">
+            <h2 id="project-modal-title" class="text-2xl font-bold text-gray-800 mb-6"></h2>
+            <form id="project-form" onsubmit="saveProject(event)">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="md:col-span-2">
+                        <h3 class="text-lg font-medium text-gray-900">Project Info</h3>
+                    </div>
+                    <div>
+                        <label for="projectName" class="block text-sm font-medium text-gray-700">Project Name</label>
+                        <input type="text" id="projectName" name="projectName" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="projectCategory" class="block text-sm font-medium text-gray-700">Category</label>
+                        <select id="projectCategory" name="projectCategory" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                        </select>
+                    </div>
+                     <div>
+                        <label for="projectStatus" class="block text-sm font-medium text-gray-700">Status</label>
+                        <select id="projectStatus" name="projectStatus" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                            <option>On Track</option>
+                            <option>At Risk</option>
+                            <option>Delayed</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="projectModules" class="block text-sm font-medium text-gray-700">Modules (Summary)</label>
+                        <input type="text" id="projectModules" name="projectModules" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+
+                    <div class="md:col-span-2 mt-4">
+                        <h3 class="text-lg font-medium text-gray-900">Governance & Leadership</h3>
+                    </div>
+                    <div>
+                        <label for="projectPoc" class="block text-sm font-medium text-gray-700">Project POC</label>
+                        <input type="text" id="projectPoc" name="projectPoc" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="projectEmail" class="block text-sm font-medium text-gray-700">POC Email</label>
+                        <input type="email" id="projectEmail" name="projectEmail" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="projectManager" class="block text-sm font-medium text-gray-700">Project Manager</label>
+                        <input type="text" id="projectManager" name="projectManager" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="executiveLeadership" class="block text-sm font-medium text-gray-700">Executive Leadership</label>
+                        <input type="text" id="executiveLeadership" name="executiveLeadership" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                     <div>
+                        <label for="projectSchedule" class="block text-sm font-medium text-gray-700">Call Schedule</label>
+                        <input type="text" id="projectSchedule" name="projectSchedule" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                </div>
+                <div id="project-modal-actions" class="flex justify-between items-center gap-4 mt-8">
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- AI Result Modal -->
+    <div id="ai-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h2 id="ai-modal-title" class="text-xl font-bold text-gray-800 mb-4">AI Assistant</h2>
+            <div id="ai-modal-content" class="text-gray-700 leading-relaxed max-h-96 overflow-y-auto"></div>
+            <div id="ai-modal-actions" class="flex justify-end gap-4 mt-6">
+                 <button type="button" onclick="closeAiModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA ---
+        let projectData = {};
+        let currentView = 'projects';
+
+        // --- DOM Elements ---
+        const detailsContainer = document.getElementById('project-details');
+        const projectFormModal = document.getElementById('project-form-modal');
+        const projectForm = document.getElementById('project-form');
+        const aiModal = document.getElementById('ai-modal');
+        const projectsTab = document.getElementById('tab-projects');
+        const governanceTab = document.getElementById('tab-governance');
+
+        // --- Data Processing & Loading ---
+        function getCombinedDefaultData() {
+            return {
+                highPriorityEscalations: {
+                    title: 'High-Priority Escalations',
+                    items: []
+                },
+                liveProjectsEndUserTechOps: {
+                    title: 'Live Projects (End User + Tech-ops)',
+                    items: []
+                },
+                liveProjectsTechOps: {
+                    title: 'Live Projects (Tech Ops)',
+                    items: []
+                },
+                liveProjectsEndUser: {
+                    title: 'Live Projects (End User)',
+                    items: []
+                },
+                livePoc: {
+                    title: 'Live POC',
+                    items: []
+                },
+                demos: {
+                    title: 'Demos',
+                    items: []
+                }
+            };
+        }
+
+        function saveData() {
+            localStorage.setItem('projectDashboardData', JSON.stringify(projectData));
+        }
+
+        function loadData() {
+            const savedData = localStorage.getItem('projectDashboardData');
+            if (savedData) {
+                projectData = JSON.parse(savedData);
+            } else {
+                projectData = getCombinedDefaultData();
+            }
+        }
+
+        // --- View Switching ---
+        function switchView(viewName) {
+            currentView = viewName;
+            if (viewName === 'projects') {
+                projectsTab.classList.add('active');
+                governanceTab.classList.remove('active');
+                renderAllProjectsView();
+            } else {
+                projectsTab.classList.remove('active');
+                governanceTab.classList.add('active');
+                renderGovernanceView();
+            }
+        }
+
+        // --- Project Modal & Form Handling ---
+        function openProjectModal(mode, sectionId = null, itemId = null) {
+            projectForm.reset();
+            const titleEl = document.getElementById('project-modal-title');
+            const actionsEl = document.getElementById('project-modal-actions');
+            const categorySelect = document.getElementById('projectCategory');
+            
+            categorySelect.innerHTML = Object.keys(projectData).map(key => `<option value="${key}">${projectData[key].title}</option>`).join('');
+
+            if (mode === 'edit') {
+                const item = projectData[sectionId].items.find(i => i.id === itemId);
+                titleEl.textContent = 'Edit Project';
+                projectForm.elements.projectName.value = item.values[0];
+                projectForm.elements.projectModules.value = item.values[2];
+                projectForm.elements.projectStatus.value = item.status;
+                projectForm.elements.projectCategory.value = sectionId;
+                // Governance fields
+                projectForm.elements.projectPoc.value = item.governance.poc || '';
+                projectForm.elements.projectEmail.value = item.governance.email || '';
+                projectForm.elements.projectManager.value = item.governance.projectManager || '';
+                projectForm.elements.executiveLeadership.value = item.governance.executiveLeadership || '';
+                projectForm.elements.projectSchedule.value = item.governance.schedule || '';
+                actionsEl.innerHTML = `
+                    <button type="button" onclick="deleteProject('${sectionId}', ${itemId})" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium">Delete Project</button>
+                    <div>
+                        <button type="button" onclick="closeProjectModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" data-mode="edit" data-section="${sectionId}" data-item="${itemId}" class="ml-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Save Changes</button>
+                    </div>`;
+            } else {
+                titleEl.textContent = 'Add New Project';
+                actionsEl.innerHTML = `
+                    <div></div>
+                    <div>
+                        <button type="button" onclick="closeProjectModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button type="submit" data-mode="add" class="ml-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add Project</button>
+                    </div>`;
+            }
+            projectFormModal.classList.remove('hidden');
+        }
+
+        function closeProjectModal() {
+            projectFormModal.classList.add('hidden');
+        }
+
+        function saveProject(event) {
+            event.preventDefault();
+            const formData = new FormData(projectForm);
+            const submitButton = event.submitter;
+            const mode = submitButton.dataset.mode;
+
+            const updatedProjectData = {
+                name: formData.get('projectName'),
+                modulesSummary: formData.get('projectModules'),
+                category: formData.get('projectCategory'),
+                status: formData.get('projectStatus'),
+                // Governance
+                poc: formData.get('projectPoc'),
+                email: formData.get('projectEmail'),
+                projectManager: formData.get('projectManager'),
+                executiveLeadership: formData.get('executiveLeadership'),
+                schedule: formData.get('projectSchedule'),
+            };
+
+            if (mode === 'add') {
+                const newProject = {
+                    id: Date.now(),
+                    dateAdded: new Date().toISOString(),
+                    status: updatedProjectData.status,
+                    values: [updatedProjectData.name, updatedProjectData.poc, updatedProjectData.modulesSummary],
+                    actionItems: [],
+                    governance: {
+                        poc: updatedProjectData.poc,
+                        email: updatedProjectData.email,
+                        projectManager: updatedProjectData.projectManager,
+                        executiveLeadership: updatedProjectData.executiveLeadership,
+                        schedule: updatedProjectData.schedule,
+                        timezone: 'IST'
+                    },
+                    modules: []
+                };
+                projectData[updatedProjectData.category].items.push(newProject);
+            } else {
+                const sectionId = submitButton.dataset.section;
+                const itemId = parseInt(submitButton.dataset.item, 10);
+                let itemToUpdate = projectData[sectionId].items.find(i => i.id === itemId);
+
+                if (sectionId !== updatedProjectData.category) {
+                    projectData[sectionId].items = projectData[sectionId].items.filter(i => i.id !== itemId);
+                    projectData[updatedProjectData.category].items.push(itemToUpdate);
+                }
+
+                itemToUpdate.status = updatedProjectData.status;
+                itemToUpdate.values = [updatedProjectData.name, updatedProjectData.poc, updatedProjectData.modulesSummary];
+                itemToUpdate.governance.poc = updatedProjectData.poc;
+                itemToUpdate.governance.email = updatedProjectData.email;
+                itemToUpdate.governance.projectManager = updatedProjectData.projectManager;
+                itemToUpdate.governance.executiveLeadership = updatedProjectData.executiveLeadership;
+                itemToUpdate.governance.schedule = updatedProjectData.schedule;
+            }
+            
+            saveData();
+            switchView(currentView);
+            closeProjectModal();
+        }
+
+        function deleteProject(sectionId, itemId) {
+            showConfirmModal('Are you sure you want to delete this project? This action cannot be undone.', () => {
+                projectData[sectionId].items = projectData[sectionId].items.filter(i => i.id !== itemId);
+                saveData();
+                switchView(currentView);
+                closeProjectModal();
+            });
+        }
+
+        // --- Core Rendering ---
+        function renderSingleProjectView(sectionId, itemId) {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if (!item) {
+                detailsContainer.innerHTML = `<p class="text-gray-500">Project not found.</p>`;
+                return;
+            }
+            
+            detailsContainer.innerHTML = `
+                <div class="mb-6">
+                    <button onclick="renderAllProjectsView()" class="mb-4 inline-flex items-center px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 text-sm font-medium">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        Back to All Projects
+                    </button>
+                </div>
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800">${item.values[0]}</h1>
+                    <button onclick="openProjectModal('edit', '${sectionId}', ${item.id})" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 text-sm font-medium">Edit Project</button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Project Details Card -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4">Project Details</h3>
+                        <dl class="space-y-2">
+                            <div class="flex justify-between"><dt class="text-gray-500">Status</dt><dd class="status-badge ${getStatusClass(item.status)}">${item.status}</dd></div>
+                            <div class="flex justify-between"><dt class="text-gray-500">Modules</dt><dd class="text-gray-900 font-medium">${item.values[2] || 'N/A'}</dd></div>
+                            <div class="flex justify-between"><dt class="text-gray-500">Date Added</dt><dd class="text-gray-900 font-medium">${new Date(item.dateAdded).toLocaleDateString()}</dd></div>
+                        </dl>
+                    </div>
+                    <!-- Governance Card -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4">Governance & Leadership</h3>
+                        <dl class="space-y-2">
+                            <div class="flex justify-between"><dt class="text-gray-500">Project Manager</dt><dd class="text-gray-900 font-medium">${item.governance.projectManager || 'N/A'}</dd></div>
+                            <div class="flex justify-between"><dt class="text-gray-500">Executive Lead</dt><dd class="text-gray-900 font-medium">${item.governance.executiveLeadership || 'N/A'}</dd></div>
+                            <div class="flex justify-between"><dt class="text-gray-500">Project POC</dt><dd class="text-gray-900 font-medium">${item.governance.poc || 'N/A'}</dd></div>
+                             <div class="flex justify-between"><dt class="text-gray-500">Call Schedule</dt><dd class="text-gray-900 font-medium">${item.governance.schedule || 'N/A'}</dd></div>
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-sm border mt-6">
+                    ${generateProjectCardHTML(sectionId, item, true)}
+                </div>
+
+                <div class="mt-8 pt-6 border-t">
+                    <h4 class="text-lg font-semibold text-gray-700 mb-3">✨ AI Assistant</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button onclick="suggestNextSteps('${sectionId}', ${item.id})" class="w-full px-4 py-2 gemini-button rounded-md font-medium text-sm">✨ Suggest Next Steps</button>
+                        <button onclick="draftStatusUpdate('${sectionId}', ${item.id})" class="w-full px-4 py-2 gemini-button rounded-md font-medium text-sm">✨ Draft Status Update</button>
+                        <button onclick="analyzeRisks('${sectionId}', ${item.id})" class="w-full px-4 py-2 gemini-button rounded-md font-medium text-sm">✨ Analyze Risks</button>
+                        <button onclick="draftAgenda('${sectionId}', ${item.id})" class="w-full px-4 py-2 gemini-button rounded-md font-medium text-sm">✨ Draft Meeting Agenda</button>
+                    </div>
+                </div>`;
+        }
+        
+        window.renderAllProjectsView = () => {
+            let allProjectsHtml = '<h1 class="text-3xl font-bold text-gray-800 mb-8">All Projects Overview</h1>';
+
+            const sectionOrder = Object.keys(projectData);
+
+            sectionOrder.forEach(sectionId => {
+                if (projectData[sectionId]) {
+                    const section = projectData[sectionId];
+                    allProjectsHtml += `<h2 class="text-2xl font-bold text-gray-700 mt-8 mb-4 pb-2 border-b">${section.title}</h2>`;
+                    if (section.items.length > 0) {
+                        section.items.forEach(item => {
+                            allProjectsHtml += `<div class="mb-8 p-6 border rounded-lg shadow-md bg-gray-50">${generateProjectCardHTML(sectionId, item, false)}</div>`;
+                        });
+                    } else {
+                        allProjectsHtml += `<p class="text-gray-500">No projects in this category.</p>`;
+                    }
+                }
+            });
+            detailsContainer.innerHTML = allProjectsHtml;
+        }
+
+        function renderGovernanceView() {
+            let tableHtml = `<div class="flex justify-between items-center mb-8">
+                                <h1 class="text-3xl font-bold text-gray-800">Project Governance</h1>
+                                <button onclick="openProjectModal('add')" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium">Add New Project</button>
+                             </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project Manager</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Executive Lead</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">POC</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">`;
+            
+            for (const sectionId in projectData) {
+                projectData[sectionId].items.forEach(item => {
+                    const gov = item.governance;
+                    tableHtml += `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.values[0]}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${gov.projectManager || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${gov.executiveLeadership || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${gov.poc || 'N/A'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button onclick="openProjectModal('edit', '${sectionId}', ${item.id})" class="text-indigo-600 hover:text-indigo-900">Edit</button>
+                                <button onclick="deleteProject('${sectionId}', ${item.id})" class="text-red-600 hover:text-red-900 ml-4">Delete</button>
+                            </td>
+                        </tr>`;
+                });
+            }
+
+            tableHtml += `</tbody></table></div>`;
+            detailsContainer.innerHTML = tableHtml;
+        }
+
+        function generateProjectCardHTML(sectionId, item, isSingleView) {
+            const completedCount = (item.actionItems || []).filter(a => a.completed).length;
+            const totalCount = (item.actionItems || []).length;
+            const progressPercentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+            const statusClass = getStatusClass(item.status);
+
+            let addActionFormHtml = `
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                     <h4 class="text-lg font-semibold text-gray-700 mb-3">Add New Action</h4>
+                     <div class="flex flex-col sm:flex-row gap-2">
+                         <input type="text" id="new-action-text-${item.id}" placeholder="Enter new task description" class="flex-grow mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                         <input type="text" id="new-action-assignee-${item.id}" placeholder="Assignee" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 sm:text-sm">
+                         <button onclick="addActionItem('${sectionId}', ${item.id})" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium whitespace-nowrap mt-1">Add Task</button>
+                         <button type="button" onclick="breakDownTask('${sectionId}', ${item.id})" class="px-4 py-2 gemini-button rounded-md font-medium text-sm whitespace-nowrap mt-1">✨ Break Down</button>
+                     </div>
+                </div>`;
+
+            return `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <button onclick="renderSingleProjectView('${sectionId}', ${item.id})" class="text-left">
+                            <h3 class="text-2xl font-bold text-gray-800 hover:text-indigo-600">${item.values[0]}</h3>
+                        </button>
+                        <p class="text-gray-500 mt-1 text-sm">PM: ${item.governance.projectManager || 'N/A'} | POC: ${item.governance.poc || 'N/A'}</p>
+                    </div>
+                    <div class="status-badge ${statusClass}">${item.status}</div>
+                </div>
+                <div class="mt-6">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm font-medium text-blue-700">Progress</span>
+                        <span class="text-xs font-medium text-blue-700">${completedCount} of ${totalCount} tasks completed</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-blue-600 h-2.5 rounded-full" style="width: ${progressPercentage}%"></div></div>
+                </div>
+                <div class="mt-6">
+                    <h4 class="text-lg font-semibold text-gray-700 mb-3">Action Items</h4>
+                    <div id="action-list-${item.id}" class="space-y-3">
+                        ${(item.actionItems || []).map(action => `
+                            <div class="p-3 border rounded-md bg-white">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-start flex-grow">
+                                        <input id="action-${action.id}" type="checkbox" onchange="toggleActionItem('${sectionId}', ${item.id}, '${action.id}')" ${action.completed ? 'checked' : ''} class="h-5 w-5 mt-0.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                        <label for="action-${action.id}" class="ml-3 block text-sm font-medium text-gray-800 ${action.completed ? 'action-item-completed' : ''}">${action.text}</label>
+                                    </div>
+                                    <div class="flex items-center gap-3 ml-3 flex-shrink-0">
+                                        <input type="text" value="${action.assignedTo}" onchange="updateAssignee('${sectionId}', ${item.id}, '${action.id}', this.value)" class="p-1 text-xs rounded-md border-gray-300 w-24" placeholder="Assignee">
+                                        <svg onclick="toggleCommentInput('${action.id}')" class="h-5 w-5 ${action.comment ? 'text-blue-500' : 'text-gray-400'} cursor-pointer hover:text-blue-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.839 8.839 0 01-4.082-.978L1 19l2.023-3.128A7.952 7.952 0 0110 3a7.952 7.952 0 015.918 2.978C17.022 7.126 18 8.492 18 10zm-8-4a1 1 0 100-2 1 1 0 000 2zm0 2a1 1 0 100-2 1 1 0 000 2zm0 2a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+                                    </div>
+                                </div>
+                                <div id="comment-for-${action.id}" class="comment-input mt-2 ml-8">
+                                    <textarea oninput="updateComment('${sectionId}', ${item.id}, '${action.id}', this.value)" class="w-full text-sm p-2 border rounded-md" placeholder="Add a comment...">${action.comment || ''}</textarea>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${(item.actionItems || []).length === 0 ? '<p class="text-gray-500 text-sm">No action items yet.</p>' : ''}
+                    </div>
+                </div>
+                ${isSingleView ? addActionFormHtml : ''}
+                `;
+        }
+
+        // --- Data & State Management ---
+        window.toggleActionItem = (sectionId, itemId, actionId) => {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            const actionItem = item.actionItems.find(a => a.id === actionId);
+            if (actionItem) {
+                actionItem.completed = !actionItem.completed;
+                actionItem.completionDate = actionItem.completed ? new Date().toISOString() : null;
+            }
+            saveData();
+            if (currentView === 'projects') {
+                const allProjectsTitle = detailsContainer.querySelector('h1');
+                if (allProjectsTitle && allProjectsTitle.textContent.includes('All Projects Overview')) {
+                    renderAllProjectsView();
+                } else {
+                    renderSingleProjectView(sectionId, itemId);
+                }
+            }
+        }
+
+        window.addActionItem = (sectionId, itemId, textOverride = null) => {
+            const input = document.getElementById(`new-action-text-${itemId}`);
+            const assigneeInput = document.getElementById(`new-action-assignee-${itemId}`);
+            const text = textOverride || input.value.trim();
+            const assignee = assigneeInput.value;
+
+            if (text === '') {
+                return;
+            }
+            
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if(item) {
+                if (!item.actionItems) item.actionItems = [];
+                item.actionItems.push({ id: Date.now() + Math.random(), text, completed: false, completionDate: null, assignedTo: assignee || 'Unassigned', comment: '' });
+            }
+            if (!textOverride) {
+                input.value = '';
+                assigneeInput.value = '';
+            }
+            saveData();
+            
+            const allProjectsTitle = detailsContainer.querySelector('h1');
+            if (allProjectsTitle && allProjectsTitle.textContent.includes('All Projects Overview')) {
+                renderAllProjectsView();
+            } else {
+                renderSingleProjectView(sectionId, itemId);
+            }
+        }
+
+        window.updateAssignee = (sectionId, itemId, actionId, assignee) => {
+            const action = projectData[sectionId].items.find(i => i.id === itemId).actionItems.find(a => a.id === actionId);
+            if(action) action.assignedTo = assignee;
+            saveData();
+        };
+
+        window.updateComment = (sectionId, itemId, actionId, comment) => {
+             const action = projectData[sectionId].items.find(i => i.id === itemId).actionItems.find(a => a.id === actionId);
+            if(action) action.comment = comment;
+            saveData();
+            const icon = document.querySelector(`svg[onclick="toggleCommentInput('${actionId}')"]`);
+            if (icon) {
+                icon.classList.toggle('text-blue-500', !!comment);
+                icon.classList.toggle('text-gray-400', !comment);
+            }
+        };
+
+        window.toggleCommentInput = (actionId) => {
+            document.getElementById(`comment-for-${actionId}`).classList.toggle('visible');
+        };
+
+        // --- Modal & UI Interaction ---
+        function showConfirmModal(message, onConfirm) {
+            const modal = document.createElement('div');
+            modal.id = 'confirm-modal';
+            modal.className = 'modal-backdrop';
+            const close = () => modal.remove();
+            const confirmBtnHandler = () => { onConfirm(); close(); };
+            modal.innerHTML = `
+                <div class="modal-content max-w-sm">
+                    <p class="text-gray-800">${message}</p>
+                    <div class="flex justify-end gap-4 mt-6">
+                        <button id="confirm-cancel" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                        <button id="confirm-ok" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Confirm</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            document.getElementById('confirm-cancel').onclick = close;
+            document.getElementById('confirm-ok').onclick = confirmBtnHandler;
+        }
+        
+        function openAiModal(title, content = '') {
+            const aiModalContent = document.getElementById('ai-modal-content');
+            const aiModalTitle = document.getElementById('ai-modal-title');
+            const aiModalActions = document.getElementById('ai-modal-actions');
+            aiModalTitle.textContent = title;
+            aiModalContent.innerHTML = content || '<div class="flex justify-center items-center h-32"><div class="loader"></div></div>';
+            aiModalActions.innerHTML = '<button type="button" onclick="closeAiModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>';
+            aiModal.classList.remove('hidden');
+        }
+
+        function closeAiModal() {
+            aiModal.classList.add('hidden');
+        }
+        
+        function getStatusClass(status) {
+            switch (status) {
+                case 'On Track': return 'status-on-track';
+                case 'At Risk': return 'status-at-risk';
+                case 'Delayed': return 'status-delayed';
+                default: return '';
+            }
+        }
+        
+        window.showCompletionReport = () => {
+            let reportHtml = `<p class="mb-4 text-gray-600">Showing all tasks that have been marked as complete.</p>`;
+            let completedTasksFound = false;
+            const completedByProject = {};
+
+            for (const sectionId in projectData) {
+                projectData[sectionId].items.forEach(item => {
+                    (item.actionItems || []).forEach(action => {
+                        if (action.completed && action.completionDate) {
+                            if (!completedByProject[item.values[0]]) {
+                                completedByProject[item.values[0]] = [];
+                            }
+                            completedByProject[item.values[0]].push(action);
+                            completedTasksFound = true;
+                        }
+                    });
+                });
+            }
+
+            if (completedTasksFound) {
+                for (const projectName in completedByProject) {
+                    reportHtml += `<h3 class="font-semibold text-gray-700 mt-4 mb-2">${projectName}</h3>`;
+                    reportHtml += '<ul class="list-disc list-inside space-y-1">';
+                    completedByProject[projectName].forEach(action => {
+                        reportHtml += `<li class="text-gray-800">${action.text} (Completed by ${action.assignedTo} on ${new Date(action.completionDate).toLocaleDateString()})</li>`;
+                    });
+                    reportHtml += '</ul>';
+                }
+            } else {
+                reportHtml += '<p class="text-gray-500">No tasks have been completed yet.</p>';
+            }
+
+            openAiModal("All Completed Tasks Report", reportHtml);
+        };
+
+        // --- Azure OpenAI API Integration ---
+        const AZURE_ENDPOINT = "YOUR_AZURE_ENDPOINT_URL"; // e.g., https://your-resource-name.openai.azure.com
+        const AZURE_API_KEY = "YOUR_AZURE_API_KEY";
+        const AZURE_DEPLOYMENT_NAME = "YOUR_MODEL_DEPLOYMENT_NAME"; // e.g., gpt-4
+
+        async function callAzureOpenAI(prompt) {
+            if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT_NAME || AZURE_ENDPOINT.includes("YOUR")) {
+                return "Error: Azure OpenAI credentials are not set. Please add your endpoint, key, and deployment name to the script.";
+            }
+            
+            const API_URL = `${AZURE_ENDPOINT}/openai/deployments/${AZURE_DEPLOYMENT_NAME}/chat/completions?api-version=2024-02-01`;
+            
+            const payload = {
+                messages: [
+                    { "role": "system", "content": "You are a helpful project management assistant." },
+                    { "role": "user", "content": prompt }
+                ]
+            };
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': AZURE_API_KEY
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                const data = await response.json();
+                if (data.choices && data.choices[0] && data.choices[0].message) {
+                    return data.choices[0].message.content;
+                } else {
+                     return "Error: Received an unexpected response format from the Azure API.";
+                }
+            } catch (error) {
+                console.error("Error calling Azure OpenAI API:", error);
+                return `An error occurred. Check the console for details. Make sure your Azure credentials and deployment name are correct.`;
+            }
+        }
+
+        window.suggestNextSteps = async (sectionId, itemId) => {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if (!item) return;
+            openAiModal('✨ Suggesting Next Steps...');
+            const pendingTasks = (item.actionItems || []).filter(a => !a.completed).map(a => `- ${a.text}`).join('\n');
+            const prompt = `Project Name: ${item.values[0]}. Status: ${item.status}. Pending Tasks:\n${pendingTasks || 'None'}. Suggest 3-5 clear, new, actionable next steps for this project. Do not repeat the pending tasks. Format as a simple list where each step is on a new line and starts with a hyphen.`;
+            const result = await callAzureOpenAI(prompt);
+            const suggestions = result.split('\n').filter(s => s.startsWith('-')).map(s => s.substring(1).trim());
+            const aiModalContent = document.getElementById('ai-modal-content');
+            const aiModalActions = document.getElementById('ai-modal-actions');
+            aiModalContent.innerHTML = `<p class="font-semibold mb-3">Suggested next steps:</p><ul class="list-disc list-inside space-y-2">${suggestions.map(s => `<li>${s}</li>`).join('')}</ul>`;
+            aiModalActions.innerHTML = `
+                <button type="button" onclick="addSuggestionsToActionItems('${sectionId}', ${itemId}, ${JSON.stringify(suggestions)})" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add to Tasks</button>
+                <button type="button" onclick="closeAiModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>
+            `;
+        };
+        
+        window.addSuggestionsToActionItems = (sectionId, itemId, suggestions) => {
+             suggestions.forEach(suggestion => {
+                 if(suggestion) addActionItem(sectionId, itemId, suggestion);
+             });
+             closeAiModal();
+        };
+
+        window.breakDownTask = async (sectionId, itemId) => {
+            const input = document.getElementById(`new-action-text-${itemId}`);
+            const task = input.value.trim();
+            if (!task) {
+                alert('Please enter a high-level task to break down.');
+                return;
+            }
+            openAiModal('✨ Breaking Down Task...');
+            const prompt = `You are a project manager. Break down the following high-level task into a list of smaller, actionable sub-tasks. Return only a simple list of tasks, separated by newlines (using \\n). Do not use markdown or numbering. High-level task: "${task}"`;
+            const result = await callAzureOpenAI(prompt);
+            const subTasks = result.split('\n').filter(t => t.trim() !== '');
+            subTasks.forEach(subTask => {
+                addActionItem(sectionId, itemId, subTask);
+            });
+            closeAiModal();
+        };
+
+        window.draftStatusUpdate = async (sectionId, itemId) => {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if (!item) return;
+            openAiModal('✨ Drafting Status Update...');
+            const pendingTasks = (item.actionItems || []).filter(a => !a.completed).map(a => `- ${a.text} (Assigned to: ${a.assignedTo}) ${a.comment ? `// Blocker: ${a.comment}` : ''}`).join('\n');
+            const completedCount = (item.actionItems || []).filter(a => a.completed).length;
+            const totalCount = (item.actionItems || []).length;
+            const prompt = `Draft a concise, professional status update email for the project "${item.values[0]}". Its current status is "${item.status}" with ${completedCount} of ${totalCount} tasks completed. Pending tasks are:\n${pendingTasks || 'None'}. If the status is 'At Risk' or 'Delayed', be sure to mention any blockers identified in the pending tasks comments. Start the entire response with a subject line like this: "Subject: Status Update - [Project Name]".`;
+            const result = await callAzureOpenAI(prompt);
+            const aiModalContent = document.getElementById('ai-modal-content');
+            const aiModalActions = document.getElementById('ai-modal-actions');
+            aiModalContent.innerHTML = `
+                <p class="font-semibold mb-3">Here is a draft status update. You can copy the text below.</p>
+                <textarea readonly class="w-full h-64 p-2 border border-gray-300 rounded-md bg-gray-50">${result}</textarea>`;
+            aiModalActions.innerHTML = `<button type="button" onclick="closeAiModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Close</button>`;
+        };
+
+        window.analyzeRisks = async (sectionId, itemId) => {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if (!item) return;
+            openAiModal('✨ Analyzing Project Risks...');
+            const pendingTasks = (item.actionItems || [])
+                .filter(a => !a.completed)
+                .map(a => `- Task: ${a.text}. Assignee: ${a.assignedTo}. Comment/Blocker: ${a.comment || 'None'}`)
+                .join('\n');
+            
+            const prompt = `Act as an expert project manager. Analyze the following project data to identify the top risks. For each risk, provide a brief explanation and a suggested mitigation strategy.
+            
+            Project Name: ${item.values[0]}
+            Current Status: ${item.status}
+            Pending Tasks and Blockers:
+            ${pendingTasks || 'No pending tasks.'}
+
+            Format the output clearly with a heading for each risk.`;
+
+            const result = await callAzureOpenAI(prompt);
+            const aiModalContent = document.getElementById('ai-modal-content');
+            aiModalContent.innerHTML = `<div class="p-2 border rounded-md bg-gray-50" style="white-space: pre-wrap;">${result}</div>`;
+        };
+
+        window.draftAgenda = async (sectionId, itemId) => {
+            const item = projectData[sectionId].items.find(i => i.id === itemId);
+            if (!item) return;
+            openAiModal('✨ Drafting Meeting Agenda...');
+
+            const pendingTasks = (item.actionItems || [])
+                .filter(a => !a.completed)
+                .map(a => `- ${a.text} (Owner: ${a.assignedTo})`)
+                .join('\n');
+
+            const prompt = `Generate a concise meeting agenda for the weekly sync call for the project "${item.values[0]}".
+            
+            Project POC: ${item.governance.poc || 'N/A'}
+            Current Project Status: ${item.status}
+            
+            Open Action Items to Discuss:
+            ${pendingTasks || 'All action items are complete.'}
+
+            The agenda should include:
+            1. A subject line for the meeting invitation.
+            2. Attendees (Project POC and Team).
+            3. A list of agenda items, including a quick review of the project status and a discussion of the open action items.
+            4. A section for new action items identified during the meeting.
+
+            Format the output as a simple, clean text that can be copied into an email or document.`;
+
+            const result = await callAzureOpenAI(prompt);
+            const aiModalContent = document.getElementById('ai-modal-content');
+            aiModalContent.innerHTML = `
+                <p class="font-semibold mb-3">Here is a draft meeting agenda. You can copy the text below.</p>
+                <textarea readonly class="w-full h-64 p-2 border border-gray-300 rounded-md bg-gray-50">${result}</textarea>`;
+        };
+        
+        // --- Initial Render ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            switchView(currentView);
+        });
+    </script>
+</body>
+</html>
